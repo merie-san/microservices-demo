@@ -97,4 +97,4 @@ data:
         traces:
           receivers: [otlp]
           processors: [batch]
-          exporters: [file/traces] 
+          exporters: [debug, file/traces] 
