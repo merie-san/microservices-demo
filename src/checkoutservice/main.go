@@ -37,9 +37,15 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 const (
@@ -83,6 +89,11 @@ type checkoutService struct {
 
 	paymentSvcAddr string
 	paymentSvcConn *grpc.ClientConn
+
+	// Metrics
+	requestCounter  metric.Int64Counter
+	requestDuration metric.Float64Histogram
+	activeRequests  metric.Int64UpDownCounter
 }
 
 func main() {
@@ -108,6 +119,14 @@ func main() {
 	}
 
 	svc := new(checkoutService)
+
+	if os.Getenv("ENABLE_METRICS") == "1" {
+		log.Info("Metrics enabled.")
+		svc.initStats()
+	} else {
+		log.Info("Metrics disabled.")
+	}
+
 	mustMapEnv(&svc.shippingSvcAddr, "SHIPPING_SERVICE_ADDR")
 	mustMapEnv(&svc.productCatalogSvcAddr, "PRODUCT_CATALOG_SERVICE_ADDR")
 	mustMapEnv(&svc.cartSvcAddr, "CART_SERVICE_ADDR")
@@ -147,8 +166,56 @@ func main() {
 	log.Fatal(err)
 }
 
-func initStats() {
-	//TODO(arbrown) Implement OpenTelemetry stats
+func (cs *checkoutService) initStats() {
+	var (
+		collectorAddr string
+		collectorConn *grpc.ClientConn
+	)
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
+	defer cancel()
+
+	mustMapEnv(&collectorAddr, "COLLECTOR_SERVICE_ADDR")
+	mustConnGRPC(ctx, &collectorConn, collectorAddr)
+
+	exporter, err := otlpmetricgrpc.New(
+		ctx,
+		otlpmetricgrpc.WithGRPCConn(collectorConn))
+
+	if err != nil {
+		log.Fatalf("Failed to create metric exporter: %v", err)
+	}
+	reader := sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Second*5))
+
+	resource, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName("checkoutservice"),
+		),
+	)
+	if err != nil {
+		log.Fatalf("Failed to create metric resource: %v", err)
+	}
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(resource),
+		sdkmetric.WithReader(reader),
+	)
+	otel.SetMeterProvider(mp)
+	meter := otel.Meter("checkoutservice")
+	cs.requestCounter, err = meter.Int64Counter("checkout_requests_total")
+	if err != nil {
+		log.Fatalf("Failed to create metric instrument: %v", err)
+	}
+	cs.requestDuration, err = meter.Float64Histogram("checkout_request_duration_seconds")
+	if err != nil {
+		log.Fatalf("Failed to create metric instrument: %v", err)
+	}
+	cs.activeRequests, err = meter.Int64UpDownCounter("checkout_active_requests")
+	if err != nil {
+		log.Fatalf("Failed to create metric instrument: %v", err)
+	}
+
 }
 
 func initTracing() {
@@ -178,7 +245,7 @@ func initTracing() {
 }
 
 func initProfiling(service, version string) {
-	// TODO(ahmetb) this method is duplicated in other microservices using Go
+	// TODO(ahmetb) this function is duplicated in other microservices using Go
 	// since they are not sharing packages.
 	for i := 1; i <= 3; i++ {
 		if err := profiler.Start(profiler.Config{
@@ -228,6 +295,26 @@ func (cs *checkoutService) Watch(req *healthpb.HealthCheckRequest, ws healthpb.H
 }
 
 func (cs *checkoutService) PlaceOrder(ctx context.Context, req *pb.PlaceOrderRequest) (*pb.PlaceOrderResponse, error) {
+
+	start := time.Now()
+
+	labels := []attribute.KeyValue{
+		attribute.String("function", "placeOrder"),
+	}
+
+	cs.requestCounter.Add(ctx, 1, metric.WithAttributes(labels...))
+	cs.activeRequests.Add(ctx, 1, metric.WithAttributes(labels...))
+	defer cs.activeRequests.Add(ctx, -1, metric.WithAttributes(labels...))
+
+	resp, err := cs.placeOrderLogic(ctx, req)
+
+	duration := time.Since(start).Seconds()
+	cs.requestDuration.Record(ctx, duration, metric.WithAttributes(labels...))
+	return resp, err
+
+}
+
+func (cs *checkoutService) placeOrderLogic(ctx context.Context, req *pb.PlaceOrderRequest) (*pb.PlaceOrderResponse, error) {
 	log.Infof("[PlaceOrder] user_id=%q user_currency=%q", req.UserId, req.UserCurrency)
 
 	orderID, err := uuid.NewUUID()
@@ -276,6 +363,7 @@ func (cs *checkoutService) PlaceOrder(ctx context.Context, req *pb.PlaceOrderReq
 		log.Infof("order confirmation email sent to %q", req.Email)
 	}
 	resp := &pb.PlaceOrderResponse{Order: orderResult}
+
 	return resp, nil
 }
 

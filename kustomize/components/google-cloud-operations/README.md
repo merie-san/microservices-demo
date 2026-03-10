@@ -73,7 +73,7 @@ spec:
           env:
           - name: COLLECTOR_SERVICE_ADDR
             value: "opentelemetrycollector:4317"
-          - name: ENABLE_STATS
+          - name: ENABLE_METRICS
             value: "1"
           - name: ENABLE_TRACING
             value: "1"

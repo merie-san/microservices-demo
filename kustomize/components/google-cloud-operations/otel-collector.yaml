@@ -92,9 +92,19 @@ data:
         verbosity: basic
       file/traces:
         path: /data/traces.json
+        rotation:
+          max_megabytes: 200
+      file/metrics:
+        path: /data/metrics.json
+        rotation:
+          max_megabytes: 200
     service:
       pipelines:
         traces:
           receivers: [otlp]
           processors: [batch]
-          exporters: [debug, file/traces] 
+          exporters: [debug, file/traces]
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug, file/metrics]

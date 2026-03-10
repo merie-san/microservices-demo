@@ -17,8 +17,12 @@ package main
 import (
 	"context"
 	"net/http"
-	"time"
 	"os"
+	"time"
+
+	"github.com/gorilla/mux"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -108,4 +112,32 @@ func ensureSessionID(next http.Handler) http.HandlerFunc {
 		r = r.WithContext(ctx)
 		next.ServeHTTP(w, r)
 	}
+}
+
+func (fs *frontendServer) serveMetrics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ctx := r.Context()
+
+		endpoint := r.URL.Path
+		if route := mux.CurrentRoute(r); route != nil {
+			if tmpl, err := route.GetPathTemplate(); err == nil {
+				endpoint = tmpl
+			}
+		}
+
+		labels := []attribute.KeyValue{
+			attribute.String("endpoint", endpoint),
+			attribute.String("method", r.Method),
+		}
+
+		fs.requestCounter.Add(ctx, 1, metric.WithAttributes(labels...))
+		fs.activeRequests.Add(ctx, 1, metric.WithAttributes(labels...))
+		defer fs.activeRequests.Add(ctx, -1, metric.WithAttributes(labels...))
+
+		next.ServeHTTP(w, r)
+
+		duration := time.Since(start).Seconds()
+		fs.requestDuration.Record(ctx, duration, metric.WithAttributes(labels...))
+	})
 }

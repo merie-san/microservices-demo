@@ -28,9 +28,14 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -86,6 +91,11 @@ type frontendServer struct {
 	collectorConn *grpc.ClientConn
 
 	shoppingAssistantSvcAddr string
+
+	// Metrics
+	requestCounter  metric.Int64Counter
+	requestDuration metric.Float64Histogram
+	activeRequests  metric.Int64UpDownCounter
 }
 
 func main() {
@@ -103,6 +113,13 @@ func main() {
 	log.Out = os.Stdout
 
 	svc := new(frontendServer)
+
+	if os.Getenv("ENABLE_METRICS") == "1" {
+		log.Info("Metrics enabled.")
+		svc.initStats(log, ctx)
+	} else {
+		log.Info("Metrics disabled.")
+	}
 
 	otel.SetTextMapPropagator(
 		propagation.NewCompositeTextMapPropagator(
@@ -163,6 +180,7 @@ func main() {
 	r.HandleFunc(baseUrl+"/bot", svc.chatBotHandler).Methods(http.MethodPost)
 
 	var handler http.Handler = r
+	handler = svc.serveMetrics(handler)                // add metrics
 	handler = &logHandler{log: log, next: handler}     // add logging
 	handler = ensureSessionID(handler)                 // add session ID
 	handler = otelhttp.NewHandler(handler, "frontend") // add OTel tracing
@@ -170,8 +188,49 @@ func main() {
 	log.Infof("starting server on %s:%s", addr, srvPort)
 	log.Fatal(http.ListenAndServe(addr+":"+srvPort, handler))
 }
-func initStats(log logrus.FieldLogger) {
-	// TODO(arbrown) Implement OpenTelemtry stats
+
+func (fs *frontendServer) initStats(log logrus.FieldLogger, ctx context.Context) {
+	mustMapEnv(&fs.collectorAddr, "COLLECTOR_SERVICE_ADDR")
+	mustConnGRPC(ctx, &fs.collectorConn, fs.collectorAddr)
+
+	exporter, err := otlpmetricgrpc.New(
+		ctx,
+		otlpmetricgrpc.WithGRPCConn(fs.collectorConn))
+
+	if err != nil {
+		log.Fatalf("Failed to create metric exporter: %v", err)
+	}
+	reader := sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Second*5))
+
+	resource, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName("frontend"),
+		),
+	)
+	if err != nil {
+		log.Fatalf("Failed to create metric resource: %v", err)
+	}
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(resource),
+		sdkmetric.WithReader(reader),
+	)
+	otel.SetMeterProvider(mp)
+	meter := otel.Meter("frontend")
+
+	fs.requestCounter, err = meter.Int64Counter("frontend_requests_total")
+	if err != nil {
+		log.Fatalf("Failed to create metric instrument: %v", err)
+	}
+	fs.requestDuration, err = meter.Float64Histogram("frontend_request_duration_seconds")
+	if err != nil {
+		log.Fatalf("Failed to create metric instrument: %v", err)
+	}
+	fs.activeRequests, err = meter.Int64UpDownCounter("frontend_active_requests")
+	if err != nil {
+		log.Fatalf("Failed to create metric instrument: %v", err)
+	}
 }
 
 func initTracing(log logrus.FieldLogger, ctx context.Context, svc *frontendServer) (*sdktrace.TracerProvider, error) {
