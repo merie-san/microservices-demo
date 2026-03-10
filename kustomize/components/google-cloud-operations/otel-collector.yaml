@@ -28,50 +28,22 @@ spec:
         app: opentelemetrycollector
     spec:
       securityContext:
-        fsGroup: 1000
-        runAsGroup: 1000
-        runAsNonRoot: true
-        runAsUser: 1000
-      # Init container retrieves the current cloud project id from the metadata server
-      # and inserts it into the collector config template
-      # https://cloud.google.com/compute/docs/storing-retrieving-metadata
-      initContainers:
-      - name: otel-gateway-init
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-          privileged: false
-          readOnlyRootFilesystem: true
-        image: busybox:latest@sha256:b3255e7dfbcd10cb367af0d409747d511aeb66dfac98cf30e97e87e4207dd76f
-        command:
-        - '/bin/sh'
-        - '-c'
-        - |
-           sed "s/{{PROJECT_ID}}/$(curl -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/project/project-id)/" /template/collector-gateway-config-template.yaml >> /conf/collector-gateway-config.yaml
-        volumeMounts:
-        - name: collector-gateway-config-template
-          mountPath: /template
-        - name: collector-gateway-config
-          mountPath: /conf
+        runAsUser: 0
       containers:
       # This gateway container will receive traces and metrics from each microservice
       # and forward it to GCP
       - name: otel-gateway
         securityContext:
           allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-          privileged: false
-          readOnlyRootFilesystem: true
         args:
         - --config=/conf/collector-gateway-config.yaml
         image: otel/opentelemetry-collector-contrib:0.144.0@sha256:213886eb6407af91b87fa47551c3632be1a6419ff3a5114ef1e6fc364628496f
         volumeMounts:
-        - name: collector-gateway-config
-          mountPath: /conf
+        - name: collector-gateway-config-template
+          mountPath: /conf/collector-gateway-config.yaml
+          subPath: collector-gateway-config-template.yaml
+        - name: otel-data
+          mountPath: /data
       volumes:
       # Simple ConfigMap volume with template file
       - name: collector-gateway-config-template
@@ -81,8 +53,10 @@ spec:
             path: collector-gateway-config-template.yaml
           name: collector-gateway-config-template
       # Create a volume to store the expanded template (with correct cloud project ID)
-      - name: collector-gateway-config
-        emptyDir: {}
+      - name: otel-data
+        hostPath:
+          path: /var/otel-data
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -110,17 +84,17 @@ data:
       otlp:
         protocols: 
           grpc:
+            endpoint: 0.0.0.0:4317
     processors:
+      batch:
     exporters:
-      googlecloud:
-        project: {{PROJECT_ID}}
+      debug:
+        verbosity: basic
+      file/traces:
+        path: /data/traces.json
     service:
       pipelines:
         traces:
-          receivers: [otlp] # Receive otlp-formatted data from other collector instances
-          processors: []
-          exporters: [googlecloud] # Export traces directly to Google Cloud
-        metrics:
           receivers: [otlp]
-          processors: []
-          exporters: [googlecloud] # Export metrics to Google Cloud
+          processors: [batch]
+          exporters: [file/traces] 

@@ -18,7 +18,7 @@ resources:
 - base
 components:
 # - components/cymbal-branding
-# - components/google-cloud-operations
+  - components/google-cloud-operations
 # - components/memorystore
 # - components/network-policies
 # - components/non-public-frontend
@@ -29,6 +29,6 @@ components:
 # - components/service-mesh-istio
 # - components/without-loadgenerator
 # These must be run last and in this order
-# - components/container-images-tag
-# - components/container-images-tag-suffix
-# - components/container-images-registry
+  - components/container-images-tag
+  - components/container-images-tag-suffix
+  - components/container-images-registry

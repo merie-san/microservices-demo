@@ -26,9 +26,9 @@ resources:
  - productcatalogservice.yaml
  - recommendationservice.yaml
  - shippingservice.yaml
-# components:
+components:
 # - ../kustomize/components/cymbal-branding
-# - ../kustomize/components/google-cloud-operations
+  - ../kustomize/components/google-cloud-operations
 # - ../kustomize/components/memorystore
 # - ../kustomize/components/network-policies
 # - ../kustomize/components/alloydb
