@@ -64,7 +64,7 @@ func (p *productCatalog) handleMetrics(ctx context.Context, functionName string,
 
 func (p *productCatalog) ListProducts(ctx context.Context, req *pb.Empty) (*pb.ListProductsResponse, error) {
 	var resp *pb.ListProductsResponse
-	err := p.handleMetrics(ctx, "ListProducts", func() error {
+	err := p.handleMetrics(ctx, "listProducts", func() error {
 		var err error
 		resp, err = p.listProductsLogic()
 		return err
@@ -80,7 +80,7 @@ func (p *productCatalog) listProductsLogic() (*pb.ListProductsResponse, error) {
 
 func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductRequest) (*pb.Product, error) {
 	var resp *pb.Product
-	err := p.handleMetrics(ctx, "GetProduct", func() error {
+	err := p.handleMetrics(ctx, "getProduct", func() error {
 		var err error
 		resp, err = p.getProductLogic(req)
 		return err
@@ -106,7 +106,7 @@ func (p *productCatalog) getProductLogic(req *pb.GetProductRequest) (*pb.Product
 
 func (p *productCatalog) SearchProducts(ctx context.Context, req *pb.SearchProductsRequest) (*pb.SearchProductsResponse, error) {
 	var resp *pb.SearchProductsResponse
-	err := p.handleMetrics(ctx, "SearchProducts", func() error {
+	err := p.handleMetrics(ctx, "searchProducts", func() error {
 		var err error
 		resp, err = p.searchProductsLogic(req)
 		return err

@@ -44,14 +44,14 @@ class HipsterShopServer {
   static ChargeServiceHandler(call, callback) {
     const start = Date.now();
 
-    activeRequests.add(1, { function: "chargeservice" });
-    requestCounter.add(1, { function: "chargeservice" });
+    activeRequests.add(1, { function: "chargeService" });
+    requestCounter.add(1, { function: "chargeService" });
 
     const wrappedCallback = (err, response) => {
 
       const duration = (Date.now() - start) / 1000;
-      requestDuration.record(duration, { function: "chargeservice" });
-      activeRequests.add(-1, { function: "chargeservice" });
+      requestDuration.record(duration, { function: "chargeService" });
+      activeRequests.add(-1, { function: "chargeService" });
       callback(err, response);
 
     };

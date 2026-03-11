@@ -129,7 +129,7 @@ class DummyEmailService(BaseEmailService):
 
     def SendOrderConfirmation(self, request, context):
         start=time.time()
-        labels = {"function": "dummyemailservice"}
+        labels = {"function": "sendOrderConfirmation"}
         if self.request_counter:
             self.request_counter.add(1, labels)
         if self.active_requests:

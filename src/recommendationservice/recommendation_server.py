@@ -91,7 +91,7 @@ class RecommendationService(demo_pb2_grpc.RecommendationServiceServicer):
 
     def ListRecommendations(self, request, context):
         start=time.time()
-        labels = {"function": "listrecommendations"}
+        labels = {"function": "listRecommendations"}
         if self.request_counter:
             self.request_counter.add(1, labels)
         if self.active_requests:

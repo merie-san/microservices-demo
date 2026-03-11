@@ -78,6 +78,7 @@ let requestDuration;
 let activeRequests;
 
 if (process.env.ENABLE_METRICS == "1") {
+  logger.info("Metrics enabled.")
   const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
   const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-grpc');
   const { Resource } = require('@opentelemetry/resources');
@@ -113,7 +114,7 @@ if (process.env.ENABLE_METRICS == "1") {
 
 }
 else {
-  logger.info("Tracing disabled.")
+  logger.info("Metrics disabled.")
 }
 
 const path = require('path');
@@ -253,7 +254,7 @@ function check(call, callback) {
 function main() {
   logger.info(`Starting gRPC server on port ${PORT}...`);
   const server = new grpc.Server();
-  server.addService(shopProto.CurrencyService.service, { getSupportedCurrencies:handleMetrics("getsupportedcurrencies", getSupportedCurrencies), convert:handleMetrics("convert", convert) });
+  server.addService(shopProto.CurrencyService.service, { getSupportedCurrencies:handleMetrics("getSupportedCurrencies", getSupportedCurrencies), convert:handleMetrics("convert", convert) });
   server.addService(healthProto.Health.service, { check });
 
   server.bindAsync(
