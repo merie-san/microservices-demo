@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import random
 from locust import FastHttpUser, TaskSet, between
 from faker import Faker
@@ -89,4 +90,6 @@ class UserBehavior(TaskSet):
 
 class WebsiteUser(FastHttpUser):
     tasks = [UserBehavior]
-    wait_time = between(1, 10)
+    rate = float(os.getenv("LAMBDA_RATE", "1"))  
+    def wait_time(self):
+        return random.expovariate(self.rate)

@@ -81,10 +81,12 @@ spec:
         env:
         - name: FRONTEND_ADDR
           value: "frontend:80"
-        - name: USERS
-          value: "10"
-        - name: RATE
-          value: "1"
+        - name: LAMBDA_RATE
+          value: "5"        
+        - name: MAX_USERS
+          value: "25"
+        - name: SPAWN_RATE
+          value: "5"
         resources:
           requests:
             cpu: 300m
