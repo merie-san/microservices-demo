@@ -36,7 +36,7 @@ if (process.env.ENABLE_TRACING == "1") {
 
   const { resourceFromAttributes } = require('@opentelemetry/resources');
 
-  const { ATTR_SERVICE_NAME }= require('@opentelemetry/semantic-conventions');
+  const { ATTR_SERVICE_NAME } = require('@opentelemetry/semantic-conventions');
 
   const { GrpcInstrumentation } = require('@opentelemetry/instrumentation-grpc');
   const { registerInstrumentations } = require('@opentelemetry/instrumentation');
@@ -45,7 +45,7 @@ if (process.env.ENABLE_TRACING == "1") {
   const { OTLPTraceExporter } = require('@opentelemetry/exporter-otlp-grpc');
 
   const collectorUrl = process.env.COLLECTOR_SERVICE_ADDR;
-  const traceExporter = new OTLPTraceExporter({url: collectorUrl});
+  const traceExporter = new OTLPTraceExporter({ url: collectorUrl });
 
   const sdk = new opentelemetry.NodeSDK({
     resource: resourceFromAttributes({
@@ -63,6 +63,48 @@ if (process.env.ENABLE_TRACING == "1") {
   logger.info("Tracing disabled.")
 }
 
+let requestCounter;
+let requestDuration;
+let activeRequests;
+
+if (process.env.ENABLE_METRICS == "1") {
+  const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+  const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-grpc');
+  const { Resource } = require('@opentelemetry/resources');
+  const { ATTR_SERVICE_NAME } = require('@opentelemetry/semantic-conventions');
+  const { metrics } = require('@opentelemetry/api');
+  const exporter = new OTLPMetricExporter({
+    url: process.env.COLLECTOR_SERVICE_ADDR,
+  });
+
+  const reader = new PeriodicExportingMetricReader({
+    exporter,
+    exportIntervalMillis: 15000,
+  });
+
+  const resource = Resource.merge(
+    Resource.empty(),
+    new Resource({ [ATTR_SERVICE_NAME]: 'paymentservice' })
+  );
+
+  const meterProvider = new MeterProvider({
+    resource,
+    readers: [reader],
+  });
+
+  metrics.setGlobalMeterProvider(meterProvider);
+
+  const meter = metrics.getMeter('paymentservice');
+  requestCounter = meter.createCounter('payment_requests_total');
+  requestDuration = meter.createHistogram('payment_request_duration', {
+    unit: 's',
+  });
+  activeRequests = meter.createUpDownCounter('payment_active_requests');
+
+}
+else {
+  logger.info("Metrics disabled.")
+}
 
 const path = require('path');
 const HipsterShopServer = require('./server');
@@ -70,6 +112,6 @@ const HipsterShopServer = require('./server');
 const PORT = process.env['PORT'];
 const PROTO_PATH = path.join(__dirname, '/proto/');
 
-const server = new HipsterShopServer(PROTO_PATH, PORT);
+const server = new HipsterShopServer(PROTO_PATH, requestCounter, requestDuration, activeRequests, PORT);
 
 server.listen();

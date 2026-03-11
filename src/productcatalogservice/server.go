@@ -35,9 +35,14 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"google.golang.org/grpc"
 )
 
@@ -140,7 +145,17 @@ func run(port string) string {
 		log.Fatalf("could not parse product catalog: %v", err)
 	}
 
+	if os.Getenv("ENABLE_METRICS") == "1" {
+		err := svc.initStats()
+		if err != nil {
+			log.Fatalf("warn: failed to start metrics collector: %+v", err)
+		}
+	} else {
+		log.Info("Metrics disabled.")
+	}
+
 	pb.RegisterProductCatalogServiceServer(srv, svc)
+
 	healthcheck := health.NewServer()
 	healthpb.RegisterHealthServer(srv, healthcheck)
 	go srv.Serve(listener)
@@ -148,8 +163,56 @@ func run(port string) string {
 	return listener.Addr().String()
 }
 
-func initStats() {
-	// TODO(drewbr) Implement OpenTelemetry stats
+func (pc *productCatalog) initStats() error {
+	var (
+		collectorAddr string
+		collectorConn *grpc.ClientConn
+	)
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
+	defer cancel()
+
+	mustMapEnv(&collectorAddr, "COLLECTOR_SERVICE_ADDR")
+	mustConnGRPC(ctx, &collectorConn, collectorAddr)
+
+	exporter, err := otlpmetricgrpc.New(
+		ctx,
+		otlpmetricgrpc.WithGRPCConn(collectorConn))
+
+	if err != nil {
+		log.Fatalf("Failed to create metric exporter: %v", err)
+	}
+	reader := sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Second*15))
+
+	resource, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName("productcatalogservice"),
+		),
+	)
+	if err != nil {
+		log.Fatalf("Failed to create metric resource: %v", err)
+	}
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(resource),
+		sdkmetric.WithReader(reader),
+	)
+	otel.SetMeterProvider(mp)
+	meter := otel.Meter("productcatalogservice")
+	pc.requestCounter, err = meter.Int64Counter("product_catalog_requests_total")
+	if err != nil {
+		return err
+	}
+	pc.requestDuration, err = meter.Float64Histogram("product_catalog_request_duration", metric.WithUnit("s"))
+	if err != nil {
+		return err
+	}
+	pc.activeRequests, err = meter.Int64UpDownCounter("product_catalog_active_requests")
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func initTracing() error {
@@ -171,7 +234,7 @@ func initTracing() error {
 	}
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()))
+		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.1)))
 	otel.SetTracerProvider(tp)
 	return err
 }

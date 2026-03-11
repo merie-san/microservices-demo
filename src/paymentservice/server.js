@@ -21,8 +21,11 @@ const charge = require('./charge');
 const logger = require('./logger')
 
 class HipsterShopServer {
-  constructor(protoRoot, port = HipsterShopServer.PORT) {
+  constructor(protoRoot, requestCounter, requestDuration, activeRequests, port = HipsterShopServer.PORT) {
     this.port = port;
+    this.requestCounter = requestCounter;
+    this.requestDuration = requestDuration;
+    this.activeRequests = activeRequests;
 
     this.packages = {
       hipsterShop: this.loadProto(path.join(protoRoot, 'demo.proto')),
@@ -39,9 +42,27 @@ class HipsterShopServer {
    * @param {*} callback  fn(err, ChargeResponse)
    */
   static ChargeServiceHandler(call, callback) {
+    const start = Date.now();
+
+    activeRequests.add(1, { function: "chargeservice" });
+    requestCounter.add(1, { function: "chargeservice" });
+
+    const wrappedCallback = (err, response) => {
+
+      const duration = (Date.now() - start) / 1000;
+      requestDuration.record(duration, { function: "chargeservice" });
+      activeRequests.add(-1, { function: "chargeservice" });
+      callback(err, response);
+
+    };
+    HipsterShopServer.chargeServiceHandlerLogic(call, wrappedCallback);
+  }
+
+  static chargeServiceHandlerLogic(call, callback) {
     try {
       logger.info(`PaymentService#Charge invoked with request ${JSON.stringify(call.request)}`);
       const response = charge(call.request);
+
       callback(null, response);
     } catch (err) {
       console.warn(err);
@@ -55,7 +76,7 @@ class HipsterShopServer {
 
 
   listen() {
-    const server = this.server 
+    const server = this.server
     const port = this.port
     server.bindAsync(
       `[::]:${port}`,

@@ -20,6 +20,8 @@ import (
 	"time"
 
 	pb "github.com/GoogleCloudPlatform/microservices-demo/src/productcatalogservice/genproto"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
@@ -27,7 +29,10 @@ import (
 
 type productCatalog struct {
 	pb.UnimplementedProductCatalogServiceServer
-	catalog pb.ListProductsResponse
+	catalog         pb.ListProductsResponse
+	requestCounter  metric.Int64Counter
+	requestDuration metric.Float64Histogram
+	activeRequests  metric.Int64UpDownCounter
 }
 
 func (p *productCatalog) Check(ctx context.Context, req *healthpb.HealthCheckRequest) (*healthpb.HealthCheckResponse, error) {
@@ -38,13 +43,52 @@ func (p *productCatalog) Watch(req *healthpb.HealthCheckRequest, ws healthpb.Hea
 	return status.Errorf(codes.Unimplemented, "health check via Watch not implemented")
 }
 
-func (p *productCatalog) ListProducts(context.Context, *pb.Empty) (*pb.ListProductsResponse, error) {
+func (p *productCatalog) handleMetrics(ctx context.Context, functionName string, f func() error) error {
+	start := time.Now()
+
+	labels := []attribute.KeyValue{
+		attribute.String("function", functionName),
+	}
+
+	p.requestCounter.Add(ctx, 1, metric.WithAttributes(labels...))
+	p.activeRequests.Add(ctx, 1, metric.WithAttributes(labels...))
+
+	defer func() {
+		duration := time.Since(start).Seconds()
+		p.requestDuration.Record(ctx, duration, metric.WithAttributes(labels...))
+		p.activeRequests.Add(ctx, -1, metric.WithAttributes(labels...))
+	}()
+
+	return f()
+}
+
+func (p *productCatalog) ListProducts(ctx context.Context, req *pb.Empty) (*pb.ListProductsResponse, error) {
+	var resp *pb.ListProductsResponse
+	err := p.handleMetrics(ctx, "ListProducts", func() error {
+		var err error
+		resp, err = p.listProductsLogic()
+		return err
+	})
+	return resp, err
+}
+
+func (p *productCatalog) listProductsLogic() (*pb.ListProductsResponse, error) {
 	time.Sleep(extraLatency)
 
 	return &pb.ListProductsResponse{Products: p.parseCatalog()}, nil
 }
 
 func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductRequest) (*pb.Product, error) {
+	var resp *pb.Product
+	err := p.handleMetrics(ctx, "GetProduct", func() error {
+		var err error
+		resp, err = p.getProductLogic(req)
+		return err
+	})
+	return resp, err
+}
+
+func (p *productCatalog) getProductLogic(req *pb.GetProductRequest) (*pb.Product, error) {
 	time.Sleep(extraLatency)
 
 	var found *pb.Product
@@ -61,6 +105,16 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 }
 
 func (p *productCatalog) SearchProducts(ctx context.Context, req *pb.SearchProductsRequest) (*pb.SearchProductsResponse, error) {
+	var resp *pb.SearchProductsResponse
+	err := p.handleMetrics(ctx, "SearchProducts", func() error {
+		var err error
+		resp, err = p.searchProductsLogic(req)
+		return err
+	})
+	return resp, err
+}
+
+func (p *productCatalog) searchProductsLogic(req *pb.SearchProductsRequest) (*pb.SearchProductsResponse, error) {
 	time.Sleep(extraLatency)
 
 	var ps []*pb.Product

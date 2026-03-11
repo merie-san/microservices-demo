@@ -185,7 +185,7 @@ func (cs *checkoutService) initStats() {
 	if err != nil {
 		log.Fatalf("Failed to create metric exporter: %v", err)
 	}
-	reader := sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Second*5))
+	reader := sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Second*15))
 
 	resource, err := resource.Merge(
 		resource.Default(),
@@ -207,7 +207,7 @@ func (cs *checkoutService) initStats() {
 	if err != nil {
 		log.Fatalf("Failed to create metric instrument: %v", err)
 	}
-	cs.requestDuration, err = meter.Float64Histogram("checkout_request_duration_seconds")
+	cs.requestDuration, err = meter.Float64Histogram("checkout_request_duration", metric.WithUnit("s"))
 	if err != nil {
 		log.Fatalf("Failed to create metric instrument: %v", err)
 	}
@@ -239,7 +239,7 @@ func initTracing() {
 	}
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()))
+		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.1)))
 	otel.SetTracerProvider(tp)
 
 }

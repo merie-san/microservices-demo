@@ -200,7 +200,7 @@ func (fs *frontendServer) initStats(log logrus.FieldLogger, ctx context.Context)
 	if err != nil {
 		log.Fatalf("Failed to create metric exporter: %v", err)
 	}
-	reader := sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Second*5))
+	reader := sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Second*15))
 
 	resource, err := resource.Merge(
 		resource.Default(),
@@ -223,7 +223,7 @@ func (fs *frontendServer) initStats(log logrus.FieldLogger, ctx context.Context)
 	if err != nil {
 		log.Fatalf("Failed to create metric instrument: %v", err)
 	}
-	fs.requestDuration, err = meter.Float64Histogram("frontend_request_duration_seconds")
+	fs.requestDuration, err = meter.Float64Histogram("frontend_request_duration", metric.WithUnit("s"))
 	if err != nil {
 		log.Fatalf("Failed to create metric instrument: %v", err)
 	}
@@ -244,7 +244,7 @@ func initTracing(log logrus.FieldLogger, ctx context.Context, svc *frontendServe
 	}
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()))
+		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.1)))
 	otel.SetTracerProvider(tp)
 
 	return tp, err
