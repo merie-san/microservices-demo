@@ -190,8 +190,8 @@ func (cs *checkoutService) initStats() {
 	resource, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName("checkoutservice"),
+			"https://opentelemetry.io/schemas/1.40.0",
+			semconv.ServiceName(os.Getenv("OTEL_SERVICE_NAME")),
 		),
 	)
 	if err != nil {
@@ -239,7 +239,7 @@ func initTracing() {
 	}
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.1)))
+		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.05)))
 	otel.SetTracerProvider(tp)
 
 }

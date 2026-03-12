@@ -139,7 +139,7 @@ func run(port string) string {
 	srv = grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()))
 
-	svc := &productCatalog{}
+	svc := new(productCatalog)
 	err = loadCatalog(&svc.catalog)
 	if err != nil {
 		log.Fatalf("could not parse product catalog: %v", err)
@@ -187,8 +187,8 @@ func (pc *productCatalog) initStats() error {
 	resource, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName("productcatalogservice"),
+			"https://opentelemetry.io/schemas/1.40.0",
+			semconv.ServiceName(os.Getenv("OTEL_SERVICE_NAME")),
 		),
 	)
 	if err != nil {
@@ -234,7 +234,7 @@ func initTracing() error {
 	}
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.1)))
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.05))))
 	otel.SetTracerProvider(tp)
 	return err
 }

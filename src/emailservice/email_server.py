@@ -35,6 +35,7 @@ from opentelemetry.instrumentation.grpc import GrpcInstrumentorServer
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.semconv.attributes import service_attributes
@@ -44,6 +45,7 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import (
     PeriodicExportingMetricReader,
 )
+
 
 # @TODO: Temporarily removed in https://github.com/GoogleCloudPlatform/microservices-demo/pull/3196
 # import googlecloudprofiler
@@ -226,7 +228,7 @@ if __name__ == "__main__":
     try:
         if os.environ["ENABLE_TRACING"] == "1":
             otel_endpoint = os.getenv("COLLECTOR_SERVICE_ADDR", "localhost:4317")
-            trace.set_tracer_provider(TracerProvider())
+            trace.set_tracer_provider(TracerProvider(ParentBased(TraceIdRatioBased(0.05))))
             trace.get_tracer_provider().add_span_processor(
                 BatchSpanProcessor(
                     OTLPSpanExporter(endpoint=otel_endpoint, insecure=True)
@@ -256,7 +258,7 @@ if __name__ == "__main__":
             resource = Resource.merge(
                 Resource.create({}),
                 Resource.create(
-                    {service_attributes.SERVICE_NAME: "emailservice"}
+                    {service_attributes.SERVICE_NAME: os.environ["OTEL_SERVICE_NAME"]}
                 ),
             )
 

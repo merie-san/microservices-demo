@@ -42,6 +42,7 @@ if (process.env.ENABLE_TRACING == "1") {
   const { registerInstrumentations } = require('@opentelemetry/instrumentation');
   const opentelemetry = require('@opentelemetry/sdk-node');
 
+  const { ParentBasedSampler, TraceIdRatioBasedSampler } = require('@opentelemetry/sdk-trace-base');
   const { OTLPTraceExporter } = require('@opentelemetry/exporter-otlp-grpc');
 
   const collectorUrl = process.env.COLLECTOR_SERVICE_ADDR;
@@ -52,6 +53,9 @@ if (process.env.ENABLE_TRACING == "1") {
       [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'paymentservice',
     }),
     traceExporter: traceExporter,
+    sampler: new ParentBasedSampler({
+      root: new TraceIdRatioBasedSampler(0.05),
+    }),
   });
 
   registerInstrumentations({
@@ -70,7 +74,7 @@ let activeRequests;
 if (process.env.ENABLE_METRICS == "1") {
   const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
   const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-grpc');
-  const { Resource } = require('@opentelemetry/resources');
+  const { resourceFromAttributes } = require('@opentelemetry/resources');
   const { ATTR_SERVICE_NAME } = require('@opentelemetry/semantic-conventions');
   const { metrics } = require('@opentelemetry/api');
   const exporter = new OTLPMetricExporter({
@@ -82,10 +86,9 @@ if (process.env.ENABLE_METRICS == "1") {
     exportIntervalMillis: 15000,
   });
 
-  const resource = Resource.merge(
-    Resource.empty(),
-    new Resource({ [ATTR_SERVICE_NAME]: 'paymentservice' })
-  );
+  const resource = resourceFromAttributes({
+    [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME,
+  });
 
   const meterProvider = new MeterProvider({
     resource,

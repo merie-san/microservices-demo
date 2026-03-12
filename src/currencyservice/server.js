@@ -54,6 +54,7 @@ if (process.env.ENABLE_TRACING == "1") {
 
   const { ATTR_SERVICE_NAME } = require('@opentelemetry/semantic-conventions');
 
+  const { ParentBasedSampler, TraceIdRatioBasedSampler } = require('@opentelemetry/sdk-trace-base');
   const opentelemetry = require('@opentelemetry/sdk-node');
 
   const { OTLPTraceExporter } = require('@opentelemetry/exporter-otlp-grpc');
@@ -62,9 +63,12 @@ if (process.env.ENABLE_TRACING == "1") {
   const traceExporter = new OTLPTraceExporter({ url: collectorUrl });
   const sdk = new opentelemetry.NodeSDK({
     resource: resourceFromAttributes({
-      [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'currencyservice',
+      [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME,
     }),
     traceExporter: traceExporter,
+    sampler: new ParentBasedSampler({
+      root: new TraceIdRatioBasedSampler(0.05),
+    }),
   });
 
   sdk.start()
@@ -81,7 +85,7 @@ if (process.env.ENABLE_METRICS == "1") {
   logger.info("Metrics enabled.")
   const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
   const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-grpc');
-  const { Resource } = require('@opentelemetry/resources');
+  const { resourceFromAttributes } = require('@opentelemetry/resources');
   const { ATTR_SERVICE_NAME } = require('@opentelemetry/semantic-conventions');
   const { metrics } = require('@opentelemetry/api');
   const exporter = new OTLPMetricExporter({
@@ -93,10 +97,9 @@ if (process.env.ENABLE_METRICS == "1") {
     exportIntervalMillis: 15000,
   });
 
-  const resource = Resource.merge(
-    Resource.empty(),
-    new Resource({ [ATTR_SERVICE_NAME]: 'currencyservice' })
-  );
+  const resource = resourceFromAttributes({
+    [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME,
+  });
 
   const meterProvider = new MeterProvider({
     resource,
@@ -254,7 +257,7 @@ function check(call, callback) {
 function main() {
   logger.info(`Starting gRPC server on port ${PORT}...`);
   const server = new grpc.Server();
-  server.addService(shopProto.CurrencyService.service, { getSupportedCurrencies:handleMetrics("getSupportedCurrencies", getSupportedCurrencies), convert:handleMetrics("convert", convert) });
+  server.addService(shopProto.CurrencyService.service, { getSupportedCurrencies: handleMetrics("getSupportedCurrencies", getSupportedCurrencies), convert: handleMetrics("convert", convert) });
   server.addService(healthProto.Health.service, { check });
 
   server.bindAsync(

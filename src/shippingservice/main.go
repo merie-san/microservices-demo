@@ -74,7 +74,7 @@ func main() {
 		log.Info("Tracing disabled.")
 	}
 
-	if os.Getenv("DISABLE_PROFILER") == "" {
+	if os.Getenv("DISABLE_PROFILER") == "1" {
 		log.Info("Profiling enabled.")
 		go initProfiling("shippingservice", "1.0.0")
 	} else {
@@ -92,9 +92,9 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	svc := &server{}
+	svc := new(server)
 
-	if os.Getenv("ENABLE_METRICS") == "" {
+	if os.Getenv("ENABLE_METRICS") == "1" {
 		log.Info("Metrics enabled.")
 		svc.initStats()
 	} else {
@@ -237,8 +237,8 @@ func (ss *server) initStats() {
 	resource, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName("shippingservice"),
+			"https://opentelemetry.io/schemas/1.40.0",
+			semconv.ServiceName(os.Getenv("OTEL_SERVICE_NAME")),
 		),
 	)
 	if err != nil {
@@ -283,7 +283,7 @@ func initTracing() {
 	}
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.1)))
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.05))))
 	otel.SetTracerProvider(tp)
 }
 

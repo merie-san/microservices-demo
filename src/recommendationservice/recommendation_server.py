@@ -36,6 +36,7 @@ from opentelemetry.instrumentation.grpc import (
     GrpcInstrumentorClient,
     GrpcInstrumentorServer,
 )
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -151,7 +152,7 @@ if __name__ == "__main__":
         grpc_server_instrumentor = GrpcInstrumentorServer()
         grpc_server_instrumentor.instrument()
         if os.environ["ENABLE_TRACING"] == "1":
-            trace.set_tracer_provider(TracerProvider())
+            trace.set_tracer_provider(TracerProvider(ParentBased(TraceIdRatioBased(0.05))))
             otel_endpoint = os.getenv("COLLECTOR_SERVICE_ADDR", "localhost:4317")
             trace.get_tracer_provider().add_span_processor(
                 BatchSpanProcessor(
@@ -180,7 +181,7 @@ if __name__ == "__main__":
             resource = Resource.merge(
                 Resource.create({}),
                 Resource.create(
-                    {service_attributes.SERVICE_NAME: "recommendationservice"},
+                    {service_attributes.SERVICE_NAME: os.environ["OTEL_SERVICE_NAME"]},
                 ),
             )
 

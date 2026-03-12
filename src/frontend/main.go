@@ -205,8 +205,8 @@ func (fs *frontendServer) initStats(log logrus.FieldLogger, ctx context.Context)
 	resource, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName("frontend"),
+			"https://opentelemetry.io/schemas/1.40.0",
+			semconv.ServiceName(os.Getenv("OTEL_SERVICE_NAME")),
 		),
 	)
 	if err != nil {
@@ -244,7 +244,7 @@ func initTracing(log logrus.FieldLogger, ctx context.Context, svc *frontendServe
 	}
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.1)))
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.05))))
 	otel.SetTracerProvider(tp)
 
 	return tp, err
