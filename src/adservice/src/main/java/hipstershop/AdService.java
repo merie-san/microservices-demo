@@ -28,7 +28,12 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
 import io.grpc.services.*;
 import io.grpc.stub.StreamObserver;
+import io.opentelemetry.sdk.OpenTelemetrySdk;
+
 import java.io.IOException;
+import java.security.KeyStore.Entry.Attribute;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -38,7 +43,23 @@ import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import io.opentelemetry.instrumentation.grpc.v1_6.GrpcTelemetry;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.metrics.DoubleHistogram;
+import io.opentelemetry.api.metrics.LongCounter;
+import io.opentelemetry.api.metrics.LongUpDownCounter;
+import io.opentelemetry.api.metrics.Meter;
+import io.grpc.ServerInterceptors;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.common.AttributeKey;
+
 public final class AdService {
+  public final static String COLLECTOR_SERVICE_ADDR = System.getenv("COLLECTOR_SERVICE_ADDR") != null
+      ? System.getenv("COLLECTOR_SERVICE_ADDR")
+      : "opentelemetrycollector:4317";
+  public static final String OTEL_SERVICE_NAME = System.getenv("OTEL_SERVICE_NAME") != null
+      ? System.getenv("OTEL_SERVICE_NAME")
+      : "adservice";
 
   private static final Logger logger = LogManager.getLogger(AdService.class);
 
@@ -47,6 +68,9 @@ public final class AdService {
 
   private Server server;
   private HealthStatusManager healthMgr;
+  private static LongCounter requestCounter;
+  private static DoubleHistogram requestDuration;
+  private static LongUpDownCounter activeRequests;
 
   private static final AdService service = new AdService();
 
@@ -54,18 +78,23 @@ public final class AdService {
     int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "9555"));
     healthMgr = new HealthStatusManager();
 
-    server =
-        ServerBuilder.forPort(port)
-            .addService(new AdServiceImpl())
-            .addService(healthMgr.getHealthService())
-            .build()
-            .start();
+    GrpcTelemetry grpcTelemetry = GrpcTelemetry.create(GlobalOpenTelemetry.get());
+
+    server = ServerBuilder.forPort(port)
+        .addService(
+            ServerInterceptors.intercept(
+                new AdServiceImpl(),
+                grpcTelemetry.newServerInterceptor()))
+        .addService(healthMgr.getHealthService())
+        .build()
+        .start();
     logger.info("Ad Service started, listening on " + port);
     Runtime.getRuntime()
         .addShutdownHook(
             new Thread(
                 () -> {
-                  // Use stderr here since the logger may have been reset by its JVM shutdown hook.
+                  // Use stderr here since the logger may have been reset by its JVM shutdown
+                  // hook.
                   System.err.println(
                       "*** shutting down gRPC ads server since JVM is shutting down");
                   AdService.this.stop();
@@ -86,12 +115,24 @@ public final class AdService {
     /**
      * Retrieves ads based on context provided in the request {@code AdRequest}.
      *
-     * @param req the request containing context.
-     * @param responseObserver the stream observer which gets notified with the value of {@code
+     * @param req              the request containing context.
+     * @param responseObserver the stream observer which gets notified with the
+     *                         value of {@code
      *     AdResponse}
      */
     @Override
     public void getAds(AdRequest req, StreamObserver<AdResponse> responseObserver) {
+      Instant startTime = Instant.now();
+      Attributes attributes = Attributes.of(AttributeKey.stringKey("function"), "getAds");
+      requestCounter.add(1, attributes);
+      activeRequests.add(1, attributes);
+      getAdsLogic(req, responseObserver);
+      Duration duration = Duration.between(startTime, Instant.now());
+      requestDuration.record(duration.toMillis() / 1000.0, attributes);
+      activeRequests.add(-1, attributes);
+    }
+
+    private void getAdsLogic(AdRequest req, StreamObserver<AdResponse> responseObserver) {
       AdService service = AdService.getInstance();
       try {
         List<Ad> allAds = new ArrayList<>();
@@ -139,7 +180,10 @@ public final class AdService {
     return service;
   }
 
-  /** Await termination on the main thread since the grpc library uses daemon threads. */
+  /**
+   * Await termination on the main thread since the grpc library uses daemon
+   * threads.
+   */
   private void blockUntilShutdown() throws InterruptedException {
     if (server != null) {
       server.awaitTermination();
@@ -147,41 +191,34 @@ public final class AdService {
   }
 
   private static ImmutableListMultimap<String, Ad> createAdsMap() {
-    Ad hairdryer =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/2ZYFJ3GM2N")
-            .setText("Hairdryer for sale. 50% off.")
-            .build();
-    Ad tankTop =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/66VCHSJNUP")
-            .setText("Tank top for sale. 20% off.")
-            .build();
-    Ad candleHolder =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/0PUK6V6EV0")
-            .setText("Candle holder for sale. 30% off.")
-            .build();
-    Ad bambooGlassJar =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/9SIQT8TOJO")
-            .setText("Bamboo glass jar for sale. 10% off.")
-            .build();
-    Ad watch =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/1YMWWN1N4O")
-            .setText("Watch for sale. Buy one, get second kit for free")
-            .build();
-    Ad mug =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/6E92ZMYYFZ")
-            .setText("Mug for sale. Buy two, get third one for free")
-            .build();
-    Ad loafers =
-        Ad.newBuilder()
-            .setRedirectUrl("/product/L9ECAV7KIM")
-            .setText("Loafers for sale. Buy one, get second one for free")
-            .build();
+    Ad hairdryer = Ad.newBuilder()
+        .setRedirectUrl("/product/2ZYFJ3GM2N")
+        .setText("Hairdryer for sale. 50% off.")
+        .build();
+    Ad tankTop = Ad.newBuilder()
+        .setRedirectUrl("/product/66VCHSJNUP")
+        .setText("Tank top for sale. 20% off.")
+        .build();
+    Ad candleHolder = Ad.newBuilder()
+        .setRedirectUrl("/product/0PUK6V6EV0")
+        .setText("Candle holder for sale. 30% off.")
+        .build();
+    Ad bambooGlassJar = Ad.newBuilder()
+        .setRedirectUrl("/product/9SIQT8TOJO")
+        .setText("Bamboo glass jar for sale. 10% off.")
+        .build();
+    Ad watch = Ad.newBuilder()
+        .setRedirectUrl("/product/1YMWWN1N4O")
+        .setText("Watch for sale. Buy one, get second kit for free")
+        .build();
+    Ad mug = Ad.newBuilder()
+        .setRedirectUrl("/product/6E92ZMYYFZ")
+        .setText("Mug for sale. Buy two, get third one for free")
+        .build();
+    Ad loafers = Ad.newBuilder()
+        .setRedirectUrl("/product/L9ECAV7KIM")
+        .setText("Loafers for sale. Buy one, get second one for free")
+        .build();
     return ImmutableListMultimap.<String, Ad>builder()
         .putAll("clothing", tankTop)
         .putAll("accessories", watch)
@@ -192,46 +229,38 @@ public final class AdService {
         .build();
   }
 
-  private static void initStats() {
-    if (System.getenv("DISABLE_STATS") != null) {
-      logger.info("Stats disabled.");
+  private void initStats(OpenTelemetrySdk otel) {
+    if (!"1".equals(System.getenv("ENABLE_METRICS"))) {
+      logger.info("Metrics enabled.");
       return;
     }
-    logger.info("Stats enabled, but temporarily unavailable");
-
-    long sleepTime = 10; /* seconds */
-    int maxAttempts = 5;
-
-    // TODO(arbrown) Implement OpenTelemetry stats
-
+    Meter meter = otel.meterBuilder(OTEL_SERVICE_NAME).build();
+    requestCounter = meter.counterBuilder("ad_requests_total").build();
+    requestDuration = meter.histogramBuilder("ad_requests_duration").setUnit("s").build();
+    activeRequests = meter.upDownCounterBuilder("ad_active_requests").build();
+    logger.info("Metrics collection initialized");
   }
 
-  private static void initTracing() {
-    if (System.getenv("DISABLE_TRACING") != null) {
+  private static void initTracing(OpenTelemetrySdk otel) {
+    if (!"1".equals(System.getenv("ENABLE_TRACING"))) {
       logger.info("Tracing disabled.");
       return;
     }
-    logger.info("Tracing enabled but temporarily unavailable");
-    logger.info("See https://github.com/GoogleCloudPlatform/microservices-demo/issues/422 for more info.");
+    GlobalOpenTelemetry.set(otel);
 
-    // TODO(arbrown) Implement OpenTelemetry tracing
-    
-    logger.info("Tracing enabled - Stackdriver exporter initialized.");
+    logger.info("Tracing initialized.");
   }
 
   /** Main launches the server from the command line. */
   public static void main(String[] args) throws IOException, InterruptedException {
+    OpenTelemetrySdk otel = OpenTelemetrySdkConfig.create();
 
-    new Thread(
-            () -> {
-              initStats();
-              initTracing();
-            })
-        .start();
+    initTracing(otel);
 
     // Start the RPC server. You shouldn't see any output from gRPC before this.
     logger.info("AdService starting.");
     final AdService service = AdService.getInstance();
+    service.initStats(otel);
     service.start();
     service.blockUntilShutdown();
   }

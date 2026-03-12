@@ -207,7 +207,7 @@ func (cs *checkoutService) initStats() {
 	if err != nil {
 		log.Fatalf("Failed to create metric instrument: %v", err)
 	}
-	cs.requestDuration, err = meter.Float64Histogram("checkout_request_duration", metric.WithUnit("s"))
+	cs.requestDuration, err = meter.Float64Histogram("checkout_requests_duration", metric.WithUnit("s"))
 	if err != nil {
 		log.Fatalf("Failed to create metric instrument: %v", err)
 	}

@@ -99,7 +99,7 @@ if (process.env.ENABLE_METRICS == "1") {
 
   const meter = metrics.getMeter('paymentservice');
   requestCounter = meter.createCounter('payment_requests_total');
-  requestDuration = meter.createHistogram('payment_request_duration', {
+  requestDuration = meter.createHistogram('payment_requests_duration', {
     unit: 's',
   });
   activeRequests = meter.createUpDownCounter('payment_active_requests');

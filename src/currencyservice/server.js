@@ -110,7 +110,7 @@ if (process.env.ENABLE_METRICS == "1") {
 
   const meter = metrics.getMeter('currencyservice');
   requestCounter = meter.createCounter('currency_requests_total');
-  requestDuration = meter.createHistogram('currency_request_duration', {
+  requestDuration = meter.createHistogram('currency_requests_duration', {
     unit: 's',
   });
   activeRequests = meter.createUpDownCounter('currency_active_requests');

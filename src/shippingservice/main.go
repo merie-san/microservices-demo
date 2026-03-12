@@ -254,7 +254,7 @@ func (ss *server) initStats() {
 	if err != nil {
 		log.Fatalf("Failed to create metric instrument: %v", err)
 	}
-	ss.requestDuration, err = meter.Float64Histogram("shipping_request_duration", metric.WithUnit("s"))
+	ss.requestDuration, err = meter.Float64Histogram("shipping_requests_duration", metric.WithUnit("s"))
 	if err != nil {
 		log.Fatalf("Failed to create metric instrument: %v", err)
 	}

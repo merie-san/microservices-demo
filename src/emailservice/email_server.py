@@ -269,7 +269,7 @@ if __name__ == "__main__":
             request_counter = meter.create_counter("email_requests_total")
 
             request_duration = meter.create_histogram(
-                "email_request_duration", unit="s"
+                "email_requests_duration", unit="s"
             )
 
             active_requests = meter.create_up_down_counter("email_active_requests")

@@ -200,15 +200,15 @@ func (pc *productCatalog) initStats() error {
 	)
 	otel.SetMeterProvider(mp)
 	meter := otel.Meter("productcatalogservice")
-	pc.requestCounter, err = meter.Int64Counter("product_catalog_requests_total")
+	pc.requestCounter, err = meter.Int64Counter("catalog_requests_total")
 	if err != nil {
 		return err
 	}
-	pc.requestDuration, err = meter.Float64Histogram("product_catalog_request_duration", metric.WithUnit("s"))
+	pc.requestDuration, err = meter.Float64Histogram("catalog_requests_duration", metric.WithUnit("s"))
 	if err != nil {
 		return err
 	}
-	pc.activeRequests, err = meter.Int64UpDownCounter("product_catalog_active_requests")
+	pc.activeRequests, err = meter.Int64UpDownCounter("catalog_active_requests")
 	if err != nil {
 		return err
 	}

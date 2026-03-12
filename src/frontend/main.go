@@ -223,7 +223,7 @@ func (fs *frontendServer) initStats(log logrus.FieldLogger, ctx context.Context)
 	if err != nil {
 		log.Fatalf("Failed to create metric instrument: %v", err)
 	}
-	fs.requestDuration, err = meter.Float64Histogram("frontend_request_duration", metric.WithUnit("s"))
+	fs.requestDuration, err = meter.Float64Histogram("frontend_requests_duration", metric.WithUnit("s"))
 	if err != nil {
 		log.Fatalf("Failed to create metric instrument: %v", err)
 	}

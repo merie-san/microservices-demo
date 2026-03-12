@@ -192,7 +192,7 @@ if __name__ == "__main__":
             request_counter = meter.create_counter("recommendation_requests_total")
 
             request_duration = meter.create_histogram(
-                "recommendation_request_duration", unit="s"
+                "recommendation_requests_duration", unit="s"
             )
 
             active_requests = meter.create_up_down_counter("recommendation_active_requests")
