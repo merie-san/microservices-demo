@@ -1,51 +1,53 @@
-// Copyright 2020 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
-using Grpc.Core;
-using Microsoft.Extensions.Logging;
 using cartservice.cartstore;
+using Grpc.Core;
 using Hipstershop;
 
 namespace cartservice.services
 {
     public class CartService : Hipstershop.CartService.CartServiceBase
     {
-        private readonly static Empty Empty = new Empty();
         private readonly ICartStore _cartStore;
+        private static readonly Empty Empty = new Empty();
 
-        public CartService(ICartStore cartStore)
+        private static readonly Meter CartMeter = new Meter("cartservice");
+        private static readonly Counter<long> requestCounter = CartMeter.CreateCounter<long>("cart_requests_total");
+        private static readonly Histogram<double> requestDuration = CartMeter.CreateHistogram<double>("cart_request_duration_seconds");
+        private static readonly UpDownCounter<long> activeRequests = CartMeter.CreateUpDownCounter<long>("cart_active_requests");
+
+        public CartService(ICartStore cartStore) => _cartStore = cartStore;
+
+        // Wrapper function
+        private async Task<T> TrackMetricsAsync<T>(string functionName, Func<Task<T>> func)
         {
-            _cartStore = cartStore;
+            var start = Stopwatch.GetTimestamp();
+            activeRequests.Add(1);
+            requestCounter.Add(1, new KeyValuePair<string, object>("function", functionName));
+
+            try
+            {
+                return await func();
+            }
+            finally
+            {
+                var duration = (Stopwatch.GetTimestamp() - start) / (double)Stopwatch.Frequency;
+                requestDuration.Record(duration, new KeyValuePair<string, object>("function", functionName));
+                activeRequests.Add(-1);
+            }
         }
 
-        public async override Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
-        {
-            await _cartStore.AddItemAsync(request.UserId, request.Item.ProductId, request.Item.Quantity);
-            return Empty;
-        }
+        // Refactored gRPC methods
+        public override Task<Empty> AddItem(AddItemRequest request, ServerCallContext context) =>
+            TrackMetricsAsync("addItem", () => _cartStore.AddItemAsync(request.UserId, request.Item.ProductId, request.Item.Quantity).ContinueWith(_ => Empty));
 
-        public override Task<Cart> GetCart(GetCartRequest request, ServerCallContext context)
-        {
-            return _cartStore.GetCartAsync(request.UserId);
-        }
+        public override Task<Cart> GetCart(GetCartRequest request, ServerCallContext context) =>
+            TrackMetricsAsync("getCart", () => _cartStore.GetCartAsync(request.UserId));
 
-        public async override Task<Empty> EmptyCart(EmptyCartRequest request, ServerCallContext context)
-        {
-            await _cartStore.EmptyCartAsync(request.UserId);
-            return Empty;
-        }
+        public override Task<Empty> EmptyCart(EmptyCartRequest request, ServerCallContext context) =>
+            TrackMetricsAsync("emptyCart", () => _cartStore.EmptyCartAsync(request.UserId).ContinueWith(_ => Empty));
     }
 }

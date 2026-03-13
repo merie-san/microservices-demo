@@ -196,4 +196,24 @@ patches:
               - name: ENABLE_METRICS
                 value: "1"
               - name: ENABLE_TRACING
-                value: "1"                              
+                value: "1"             
+# cartservice - tracing, metrics            
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: cartservice
+    spec:
+      template:
+        spec:
+          containers:
+            - name: server
+              env:
+              - name: COLLECTOR_SERVICE_ADDR
+                value: "opentelemetrycollector:4317"
+              - name: OTEL_SERVICE_NAME
+                value: "cartservice"
+              - name: ENABLE_METRICS
+                value: "1"
+              - name: ENABLE_TRACING
+                value: "1"                                 
